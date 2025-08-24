@@ -1,0 +1,197 @@
+_schema-version: 3.3.0
+ID: cap-issue-test
+description: A simple CAP project.
+version: 1.0.0
+modules:
+  - name: cap-issue-test-srv
+    type: nodejs
+    path: gen/srv
+    requires:
+      - name: cap-issue-test-auth
+      - name: cap-issue-test-db
+      - name: cap-issue-test-destination
+    provides:
+      - name: srv-api
+        properties:
+          srv-url: ${default-url}
+    parameters:
+      buildpack: nodejs_buildpack
+      instances: 1
+    build-parameters:
+      builder: npm-ci
+  - name: cap-issue-test-db-deployer
+    type: hdb
+    path: gen/db
+    requires:
+      - name: cap-issue-test-db
+    parameters:
+      buildpack: nodejs_buildpack
+  - name: cap-issue-test
+    type: approuter.nodejs
+    path: app/router
+    requires:
+      - name: srv-api
+        group: destinations
+        properties:
+          forwardAuthToken: true
+          name: srv-api
+          url: ~{srv-url}
+      - name: cap-issue-test-auth
+      - name: cap-issue-test-destination
+      - name: cap-issue-test-html5-runtime
+    provides:
+      - name: app-api
+        properties:
+          app-protocol: ${protocol}
+          app-uri: ${default-uri}
+    parameters:
+      disk-quota: 256M
+      keep-existing-routes: true
+      memory: 256M
+  - name: cap-issue-test-app-deployer
+    type: com.sap.application.content
+    path: gen
+    requires:
+      - name: cap-issue-test-auth
+      - name: srv-api
+      - name: cap-issue-test-html5-repo-host
+        parameters:
+          config:
+            HTML5Runtime_enabled: true
+          content-target: true
+    parameters:
+      config:
+        HTML5Runtime_enabled: true
+        init_data:
+          instance:
+            destinations:
+              - Authentication: NoAuthentication
+                HTML5.DynamicDestination: true
+                HTML5.ForwardAuthToken: true
+                Name: srv-api
+                ProxyType: Internet
+                Type: HTTP
+                URL: ~{srv-api/srv-url}
+              - Authentication: NoAuthentication
+                Name: ui5
+                ProxyType: Internet
+                Type: HTTP
+                URL: https://ui5.sap.com
+            existing_destinations_policy: update
+    build-parameters:
+      build-result: app/
+      requires:
+        - artifacts:
+            - capissuerawdatafile.zip
+          name: capissuerawdatafile
+          target-path: app//
+  - name: cap-issue-test-destinations
+    type: com.sap.application.content
+    requires:
+      - name: cap-issue-test-auth
+        parameters:
+          service-key:
+            name: cap-issue-test-auth-key
+      - name: cap-issue-test-html5-repo-host
+        parameters:
+          service-key:
+            name: cap-issue-test-html5-repo-host-key
+      - name: srv-api
+      - name: cap-issue-test-destination
+        parameters:
+          content-target: true
+    parameters:
+      content:
+        instance:
+          destinations:
+            - Name: cap-issue-test-html5-repository
+              ServiceInstanceName: cap-issue-test-html5-repo-host
+              ServiceKeyName: cap-issue-test-html5-repo-host-key
+              sap.cloud.service: capissuetest.service
+            - Authentication: OAuth2UserTokenExchange
+              Name: cap-issue-test-auth
+              ServiceInstanceName: cap-issue-test-auth
+              ServiceKeyName: cap-issue-test-auth-key
+              sap.cloud.service: capissuetest.service
+          existing_destinations_policy: update
+    build-parameters:
+      no-source: true
+  - name: capissuerawdatafile
+    type: html5
+    path: app/raw-data-file
+    build-parameters:
+      build-result: dist
+      builder: custom
+      commands:
+        - npm install
+        - npm run build:cf
+      supported-platforms: []
+resources:
+  - name: cap-issue-test-auth
+    type: org.cloudfoundry.managed-service
+    parameters:
+      config:
+        oauth2-configuration:
+          redirect-uris:
+            - https://*~{app-api/app-uri}/**
+        tenant-mode: dedicated
+        xsappname: cap-issue-test-${org}-${space}
+      path: ./xs-security.json
+      service: xsuaa
+      service-plan: application
+    requires:
+      - name: app-api
+  - name: cap-issue-test-db
+    type: com.sap.xs.hdi-container
+    parameters:
+      service: hana
+      service-plan: hdi-shared
+  - name: cap-issue-test-destination
+    type: org.cloudfoundry.managed-service
+    parameters:
+      config:
+        HTML5Runtime_enabled: true
+        init_data:
+          instance:
+            destinations:
+              - Authentication: NoAuthentication
+                HTML5.DynamicDestination: true
+                HTML5.ForwardAuthToken: true
+                Name: srv-api
+                ProxyType: Internet
+                Type: HTTP
+                URL: ~{srv-api/srv-url}
+              - Authentication: NoAuthentication
+                Name: ui5
+                ProxyType: Internet
+                Type: HTTP
+                URL: https://ui5.sap.com
+            existing_destinations_policy: update
+      service: destination
+      service-plan: lite
+    requires:
+      - name: srv-api
+        group: destinations
+        properties:
+          forwardAuthToken: true
+          name: srv-api
+          url: ~{srv-url}
+  - name: cap-issue-test-html5-repo-host
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: html5-apps-repo
+      service-plan: app-host
+  - name: cap-issue-test-html5-runtime
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: html5-apps-repo
+      service-plan: app-runtime
+parameters:
+  deploy_mode: html5-repo
+  enable-parallel-deployments: true
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        - npm ci
+        - npx cds build --production

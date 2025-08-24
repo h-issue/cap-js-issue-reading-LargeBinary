@@ -1,0 +1,24 @@
+### Step#1
+GET http://localhost:4004/odata/v4/catalog/RawDataFile HTTP/1.1
+Authorization: Basic alice:
+
+### Step#2 upload a sample excel file
+PUT http://localhost:4004/odata/v4/catalog/RawDataFile(fae5ac1d-394e-4ac4-aa74-589be41c4ca1)/content HTTP/1.1
+Authorization: Basic alice:
+Content-Disposition: form-data; name="file"; filename="tests-example.xls"
+Content-Type: application/octet-stream
+
+< ./tests-example.xls
+
+### Step#3 call `test` function, everything works fine locally or on BTP CF env.
+GET http://localhost:4004/odata/v4/catalog/test HTTP/1.1
+Authorization: Basic alice:
+
+### Step#4 call `startInterval` function, everything works fine locally but not working on BTP CF env. 
+### Please refer to `log-btp-cf-env.txt` BTP CF log file and search `fae5ac1d-394e-4ac4-aa74-589be41c4ca1`. Line 37 is the error message: `"message":"error while parsing protocol: invalid lob locator id (piecewise lob reading)"`
+GET http://localhost:4004/odata/v4/catalog/startInterval HTTP/1.1
+Authorization: Basic alice:
+
+###
+GET http://localhost:4004/odata/v4/catalog/stopInterval HTTP/1.1
+Authorization: Basic alice:
