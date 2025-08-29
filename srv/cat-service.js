@@ -38,53 +38,34 @@ module.exports = async function () {
   });
 
   async function doJob() {
-    try {
-      logger.info(`Start!`);
+    return cds.tx(async () => {
+      // <== Create transaction for whole query execution
+      try {
+        const record = await SELECT.one.from(RawDataFile)
+          .columns`ID, content, filename`.where`content is not null`.orderBy({
+          createdAt: 1,
+        });
 
-      const record = await SELECT.one
-        .from(RawDataFile)
-        .columns((c) => {
-          c.ID, c.content, c.filename;
-        })
-        .where({
-          content: { "is not": null },
-        })
-        .orderBy({ createdAt: 1 });
+        if (!record) {
+          return `Not records found.`;
+        }
 
-      if (!record) {
-        logger.info(`Not records found.`);
-        return `Not records found.`;
+        const { ID, content, filename } = record;
+        const chunks = [];
+        for await (const chunk of content) {
+          // <== Read through the whole stream inside the transaction
+          chunks.push(chunk);
+        }
+        const bufferContent = Buffer.concat(chunks);
+        logger.info(
+          `${ID} received ${bufferContent.length} bytes of data in total.`
+        );
+        // TODO do something on bufferContent
+      } catch (error) {
+        return "Not OK.";
       }
 
-      const { ID, content, filename } = record;
-
-      logger.info(`🎯Begin read LargeBinary content!`);
-
-      const chunks = [];
-      content.on("data", (chunk) => {
-        logger.info(`${ID} on 'data', received ${chunk.length} bytes of data.`);
-        chunks.push(chunk);
-      });
-
-      const streamPromise = new Promise((resolve, reject) =>
-        content.on("end", async () => {
-          logger.info(`${ID} on 'end', ${chunks.length} times.`);
-          const content = Buffer.concat(chunks);
-          resolve(content);
-        })
-      );
-
-      const bufferContent = await streamPromise;
-      logger.info(
-        `${ID} received ${bufferContent.length} bytes of data in total.`
-      );
-
-      logger.info(`Done!`);
-    } catch (error) {
-      logger.error(`Read LargeBinary content failed.`, error);
-      return "Not OK.";
-    }
-
-    return "OK";
+      return "OK";
+    });
   }
 };
